@@ -40,7 +40,7 @@ func RestartKubeAPIWithHealthcheck(ctx context.Context, hostList []*hosts.Host, 
 		}
 		logrus.Debugf("[%s] Running healthcheck for %s on node [%s]", ControlRole, KubeAPIContainerName, runHost.Address)
 		if err := runHealthcheck(ctx, runHost, KubeAPIContainerName,
-			df, GetHealthCheckURL(true, KubeAPIPort),
+			df, GetHealthCheckURL(true, KubeAPIPort, runHost.InternalAddress),
 			certMap); err != nil {
 			return err
 		}

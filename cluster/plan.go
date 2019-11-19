@@ -208,6 +208,7 @@ func (c *Cluster) BuildKubeAPIProcess(host *hosts.Host, prefixPath string, svcOp
 		"tls-cert-file":                pki.GetCertPath(pki.KubeAPICertName),
 		"tls-private-key-file":         pki.GetKeyPath(pki.KubeAPICertName),
 	}
+
 	if len(c.CloudProvider.Name) > 0 {
 		CommandArgs["cloud-config"] = cloudConfigFileName
 	}
@@ -239,6 +240,19 @@ func (c *Cluster) BuildKubeAPIProcess(host *hosts.Host, prefixPath string, svcOp
 			CommandArgs[k] = v
 		}
 	}
+
+	if c.Services.KubeAPI.RestrictBindAddresses {
+		if len(host.InternalAddress) > 0 {
+			CommandArgs["bind-address"] = host.InternalAddress
+			CommandArgs["address"] = host.InternalAddress
+			CommandArgs["advertise-address"] = host.InternalAddress
+		} else {
+			CommandArgs["address"] = host.Address
+			CommandArgs["bind-address"] = host.Address
+			CommandArgs["advertise-address"] = host.Address
+		}
+	}
+
 	// check api server count for k8s v1.8
 	if util.GetTagMajorVersion(c.Version) == "v1.8" {
 		CommandArgs["apiserver-count"] = strconv.Itoa(len(c.ControlPlaneHosts))
@@ -309,9 +323,14 @@ func (c *Cluster) BuildKubeAPIProcess(host *hosts.Host, prefixPath string, svcOp
 
 	Binds = append(Binds, c.Services.KubeAPI.ExtraBinds...)
 
-	healthCheck := v3.HealthCheck{
-		URL: services.GetHealthCheckURL(true, services.KubeAPIPort),
+	healthCheckAddress := "localhost"
+	if address, exists := CommandArgs["bind-address"]; exists {
+		healthCheckAddress = address
 	}
+	healthCheck := v3.HealthCheck{
+		URL: services.GetHealthCheckURL(true, services.KubeAPIPort, healthCheckAddress),
+	}
+
 	registryAuthConfig, _, _ := docker.GetImageRegistryConfig(c.Services.KubeAPI.Image, c.PrivateRegistriesMap)
 
 	return v3.Process{
@@ -345,9 +364,10 @@ func (c *Cluster) BuildKubeControllerProcess(host *hosts.Host, prefixPath string
 		"service-account-private-key-file": pki.GetKeyPath(pki.ServiceAccountTokenKeyName),
 		"service-cluster-ip-range":         c.Services.KubeController.ServiceClusterIPRange,
 	}
+
 	// Best security practice is to listen on localhost, but DinD uses private container network instead of Host.
 	if c.DinD {
-		CommandArgs["address"] = "0.0.0.0"
+		CommandArgs["bind-address"] = "0.0.0.0"
 	}
 	if len(c.CloudProvider.Name) > 0 {
 		CommandArgs["cloud-config"] = cloudConfigFileName
@@ -366,6 +386,16 @@ func (c *Cluster) BuildKubeControllerProcess(host *hosts.Host, prefixPath string
 				continue
 			}
 			CommandArgs[k] = v
+		}
+	}
+
+	if c.Services.KubeController.RestrictBindAddresses {
+		if len(host.InternalAddress) > 0 {
+			CommandArgs["bind-address"] = host.InternalAddress
+			CommandArgs["address"] = host.InternalAddress
+		} else {
+			CommandArgs["bind-address"] = host.Address
+			CommandArgs["address"] = host.Address
 		}
 	}
 
@@ -393,8 +423,12 @@ func (c *Cluster) BuildKubeControllerProcess(host *hosts.Host, prefixPath string
 
 	Binds = append(Binds, c.Services.KubeController.ExtraBinds...)
 
+	healthCheckAddress := "localhost"
+	if address, exists := CommandArgs["bind-address"]; exists {
+		healthCheckAddress = address
+	}
 	healthCheck := v3.HealthCheck{
-		URL: services.GetHealthCheckURL(false, services.KubeControllerPort),
+		URL: services.GetHealthCheckURL(false, services.KubeControllerPort, healthCheckAddress),
 	}
 
 	registryAuthConfig, _, _ := docker.GetImageRegistryConfig(c.Services.KubeController.Image, c.PrivateRegistriesMap)
@@ -510,6 +544,18 @@ func (c *Cluster) BuildKubeletProcess(host *hosts.Host, prefixPath string, svcOp
 		}
 	}
 
+	if c.Services.Kubelet.RestrictBindAddresses {
+		if len(host.InternalAddress) > 0 {
+			CommandArgs["address"] = host.InternalAddress
+			CommandArgs["healthz-bind-address"] = host.InternalAddress
+			CommandArgs["node-ip"] = host.InternalAddress
+		} else {
+			CommandArgs["address"] = host.Address
+			CommandArgs["healthz-bind-address"] = host.Address
+			CommandArgs["node-ip"] = host.Address
+		}
+	}
+
 	VolumesFrom := []string{
 		services.SidekickContainerName,
 	}
@@ -574,8 +620,13 @@ func (c *Cluster) BuildKubeletProcess(host *hosts.Host, prefixPath string, svcOp
 
 	Binds = append(Binds, c.Services.Kubelet.ExtraBinds...)
 
+	healthCheckAddress := "localhost"
+	// --healthz-bind-address is deprecated but still avalaible
+	if address, exists := CommandArgs["healthz-bind-address"]; exists {
+		healthCheckAddress = address
+	}
 	healthCheck := v3.HealthCheck{
-		URL: services.GetHealthCheckURL(false, services.KubeletPort),
+		URL: services.GetHealthCheckURL(false, services.KubeletPort, healthCheckAddress),
 	}
 	registryAuthConfig, _, _ := docker.GetImageRegistryConfig(c.Services.Kubelet.Image, c.PrivateRegistriesMap)
 
@@ -630,12 +681,23 @@ func (c *Cluster) BuildKubeProxyProcess(host *hosts.Host, prefixPath string, svc
 			CommandArgs[k] = v
 		}
 	}
+
 	// If cloudprovider is set (not empty), set the bind address because the node will not be able to retrieve it's IP address in case cloud provider changes the node object name (i.e. AWS and Openstack)
 	if c.CloudProvider.Name != "" {
 		if host.InternalAddress != "" && host.Address != host.InternalAddress {
 			CommandArgs["bind-address"] = host.InternalAddress
 		} else {
 			CommandArgs["bind-address"] = host.Address
+		}
+	}
+
+	if c.Services.Kubeproxy.RestrictBindAddresses {
+		if len(host.InternalAddress) > 0 {
+			CommandArgs["bind-address"] = host.InternalAddress
+			CommandArgs["healthz-bind-address"] = host.InternalAddress
+		} else {
+			CommandArgs["bind-address"] = host.Address
+			CommandArgs["healthz-bind-address"] = host.Address
 		}
 	}
 
@@ -688,8 +750,12 @@ func (c *Cluster) BuildKubeProxyProcess(host *hosts.Host, prefixPath string, svc
 
 	Binds = append(Binds, c.Services.Kubeproxy.ExtraBinds...)
 
+	healthCheckAddress := "localhost"
+	if address, exists := CommandArgs["healthz-bind-address"]; exists {
+		healthCheckAddress = address
+	}
 	healthCheck := v3.HealthCheck{
-		URL: services.GetHealthCheckURL(false, services.KubeproxyPort),
+		URL: services.GetHealthCheckURL(false, services.KubeproxyPort, healthCheckAddress),
 	}
 	registryAuthConfig, _, _ := docker.GetImageRegistryConfig(c.Services.Kubeproxy.Image, c.PrivateRegistriesMap)
 	return v3.Process{
@@ -779,7 +845,7 @@ func (c *Cluster) BuildSchedulerProcess(host *hosts.Host, prefixPath string, svc
 
 	// Best security practice is to listen on localhost, but DinD uses private container network instead of Host.
 	if c.DinD {
-		CommandArgs["address"] = "0.0.0.0"
+		CommandArgs["bind-address"] = "0.0.0.0"
 	}
 	serviceOptions := c.GetKubernetesServicesOptions(host.DockerInfo.OSType, svcOptionData)
 	if serviceOptions.Scheduler != nil {
@@ -790,6 +856,16 @@ func (c *Cluster) BuildSchedulerProcess(host *hosts.Host, prefixPath string, svc
 				continue
 			}
 			CommandArgs[k] = v
+		}
+	}
+
+	if c.Services.Scheduler.RestrictBindAddresses {
+			if len(host.InternalAddress) > 0 {
+			CommandArgs["address"] = host.InternalAddress
+			CommandArgs["bind-address"] = host.InternalAddress
+		} else {
+			CommandArgs["address"] = host.Address
+			CommandArgs["bind-address"] = host.Address
 		}
 	}
 
@@ -813,8 +889,12 @@ func (c *Cluster) BuildSchedulerProcess(host *hosts.Host, prefixPath string, svc
 
 	Binds = append(Binds, c.Services.Scheduler.ExtraBinds...)
 
+	healthCheckAddress := "localhost"
+	if address, exists := CommandArgs["bind-address"]; exists {
+		healthCheckAddress = address
+	}
 	healthCheck := v3.HealthCheck{
-		URL: services.GetHealthCheckURL(false, services.SchedulerPort),
+		URL: services.GetHealthCheckURL(false, services.SchedulerPort, healthCheckAddress),
 	}
 	registryAuthConfig, _, _ := docker.GetImageRegistryConfig(c.Services.Scheduler.Image, c.PrivateRegistriesMap)
 	return v3.Process{
@@ -929,7 +1009,7 @@ func (c *Cluster) BuildEtcdProcess(host *hosts.Host, etcdHosts []*hosts.Host, pr
 
 	// If InternalAddress is not explicitly set, it's set to the same value as Address. This is all good until we deploy on a host with a DNATed public address like AWS, in that case we can't bind to that address so we fall back to 0.0.0.0
 	listenAddress := host.InternalAddress
-	if host.Address == host.InternalAddress {
+	if host.Address == host.InternalAddress && !c.Services.Etcd.RestrictBindAddresses {
 		listenAddress = "0.0.0.0"
 	}
 

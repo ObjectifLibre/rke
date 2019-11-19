@@ -148,11 +148,11 @@ func GetProcessConfig(process v3.Process, host *hosts.Host) (*container.Config, 
 	return imageCfg, hostCfg, process.HealthCheck.URL
 }
 
-func GetHealthCheckURL(useTLS bool, port int) string {
+func GetHealthCheckURL(useTLS bool, port int, address string) string {
 	if useTLS {
-		return fmt.Sprintf("%s%s:%d%s", HTTPSProtoPrefix, HealthzAddress, port, HealthzEndpoint)
+		return fmt.Sprintf("%s%s:%d%s", HTTPSProtoPrefix, address, port, HealthzEndpoint)
 	}
-	return fmt.Sprintf("%s%s:%d%s", HTTPProtoPrefix, HealthzAddress, port, HealthzEndpoint)
+	return fmt.Sprintf("%s%s:%d%s", HTTPProtoPrefix, address, port, HealthzEndpoint)
 }
 
 func createLogLink(ctx context.Context, host *hosts.Host, containerName, plane, image string, prsMap map[string]v3.PrivateRegistry) error {

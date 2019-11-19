@@ -23,6 +23,14 @@ const (
 	StateDeployerContainerName = "cluster-state-deployer"
 )
 
+func replaceCertIp(env []string, oldip, newip string) {
+	for i, envStr := range(env) {
+		if strings.Contains(envStr, "server: \"https://"+oldip+":6443\"") {
+			env[i] = strings.ReplaceAll(envStr, "server: \"https://"+oldip+":6443\"", "server: \"https://"+newip+":6443\"")
+		}
+	}
+}
+
 func DeployCertificatesOnPlaneHost(ctx context.Context, host *hosts.Host, rkeConfig v3.RancherKubernetesEngineConfig, crtMap map[string]CertificatePKI, certDownloaderImage string, prsMap map[string]v3.PrivateRegistry, forceDeploy bool) error {
 	crtBundle := GenerateRKENodeCerts(ctx, rkeConfig, host.Address, crtMap)
 	env := []string{}
@@ -49,7 +57,13 @@ func DeployCertificatesOnPlaneHost(ctx context.Context, host *hosts.Host, rkeCon
 			[]string{fmt.Sprintf("ETCD_UID=%d", rkeConfig.Services.Etcd.UID),
 				fmt.Sprintf("ETCD_GID=%d", rkeConfig.Services.Etcd.GID)}...)
 	}
-
+	if rkeConfig.Services.KubeAPI.RestrictBindAddresses  && host.IsControl {
+		if len(host.InternalAddress) > 0 {
+			replaceCertIp(env, "127.0.0.1", host.InternalAddress)
+		} else {
+			replaceCertIp(env, "127.0.0.1", host.Address)
+		}
+	}
 	return doRunDeployer(ctx, host, env, certDownloaderImage, prsMap)
 }
 

@@ -42,6 +42,7 @@ func GetNode(k8sClient *kubernetes.Clientset, nodeName string) (*v1.Node, error)
 		return nil, err
 	}
 	for _, node := range nodes.Items {
+		logrus.Infof("Nodename=%s, Node={%+v}", nodeName, node)
 		if strings.ToLower(node.Labels[HostnameLabel]) == strings.ToLower(nodeName) {
 			return &node, nil
 		}
